@@ -6,6 +6,10 @@ from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timezone
 
+#Plotly for visualization
+#https://plotly.com/python/candlestick-charts/ - documentation for using plotly library
+import plotly.graph_objects as go
+
 # API Documentation:
 # https://alpaca.markets/sdks/python/market_data.html
 
@@ -43,3 +47,4 @@ bars.df
 # even for a single symbol request - models are agnostic to number of symbols
 print(bars["AAPL"])
 print(bars["MSFT"])
+
