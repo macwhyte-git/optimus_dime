@@ -1,9 +1,11 @@
 import os
 import pandas as pd
+
 # Import necessary classes from the Alpaca SDK
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from datetime import datetime, timezone
 
 #Plotly for visualization
@@ -32,19 +34,18 @@ if not SECRET_KEY:
 client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
 request_params = StockBarsRequest(
-    symbol_or_symbols=["AAPL", "MSFT"],
-    timeframe=TimeFrame.Day,
-    start=datetime(2025, 12, 15, tzinfo=timezone.utc),
-    end=datetime(2025, 12, 21, tzinfo=timezone.utc),
+    symbol_or_symbols=["AAPL"],
+    timeframe=TimeFrame(5, TimeFrameUnit.Minute),
+    start=datetime(2026, 7, 1, 14, 30, tzinfo=timezone.utc),
+    end=datetime(2026, 7, 1, 21, 0, tzinfo=timezone.utc),
 )
-
 bars = client.get_stock_bars(request_params)
 
 # Convert the bars to a pandas DataFrame for easier manipulation
-bars.df
+df = bars.df
 
+df.to_csv("data/AAPL_bars.csv", index=True)
 # access bars as list - important to note that you must access by symbol key
 # even for a single symbol request - models are agnostic to number of symbols
 print(bars["AAPL"])
-print(bars["MSFT"])
 
