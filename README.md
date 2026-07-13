@@ -10,3 +10,7 @@ ALPACA_BASE_URL
 # .venv
 made in VSCode, .venv required to run python. 
 .venv is unique to user, not tracked through GitHub.
+
+# Alpaca used as platform
+documentation can be found here:
+https://alpaca.markets/sdks/python/api_reference/data/timeframe.html#alpaca.data.timeframe.TimeFrame
