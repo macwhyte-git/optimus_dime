@@ -208,3 +208,6 @@ __marimo__/
 
 #api credentials
 .env
+
+#data files
+data/

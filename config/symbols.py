@@ -1,0 +1,3 @@
+SYMBOLS = [
+    "AAPL"
+]
