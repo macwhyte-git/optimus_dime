@@ -1,3 +1,0 @@
-SYMBOLS = [
-    "AAPL"
-]
