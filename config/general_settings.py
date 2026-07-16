@@ -6,5 +6,5 @@ load_dotenv()
 
 #Alpaca API credentials
 ALPACA_API_KEY = os.getenv("ALPACA_API_KEY")
-ALPACA_SECRET_KEY = os.getenv("ALPACA_SECRET_KEY")
+ALPACA_API_SECRET = os.getenv("ALPACA_API_SECRET")
 ALPACA_BASE_URL = os.getenv("ALPACA_BASE_URL")

@@ -15,19 +15,23 @@ import plotly.graph_objects as go
 # API Documentation:
 # https://alpaca.markets/sdks/python/market_data.html
 
+# interact with dotenv to load environment variables
+from dotenv import load_dotenv
+#load dotenv
+load_dotenv()
+
 #assign api key and secret key from environment variables
-from config.general_settings import ALPACA_API_KEY, ALPACA_API_SECRET
-API_KEY = ALPACA_API_KEY
-API_SECRET = ALPACA_API_SECRET
+API_KEY = os.getenv('ALPACA_API_KEY')
+SECRET_KEY = os.getenv('ALPACA_API_SECRET')
 
 #if api key or secret key is not found, raise an error // how does this work? 
 if not API_KEY:
-    raise ValueError("API_KEY not found in general_settings.py variables")
-if not API_SECRET:
-    raise ValueError("API_SECRET not found in general_settings.py variables")
+    raise ValueError("API_KEY not found in environment variables")
+if not SECRET_KEY:
+    raise ValueError("SECRET_KEY not found in environment variables")
 
 # Initialize the Stock Historical Data Client
-client = StockHistoricalDataClient(API_KEY, API_SECRET)
+client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 
 request_params = StockBarsRequest(
     symbol_or_symbols=["AAPL"],
