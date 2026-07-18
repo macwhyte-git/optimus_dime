@@ -1,5 +1,6 @@
 import pandas as pd
 from src.data.database import Database
+from src.data.database_repository import save_bars
 
 #Import trading parameters
 from config.trading_parameters import (
@@ -26,13 +27,9 @@ print(df.head())
 #Store the dataframe in a sqlite database using the Database class from src/data/database.py
 db = Database()
 
-df.to_sql(
-    "stock_bars", #table name
-    db.conn, #connection
-    if_exists="replace", #append or replace
-    index=True,
-    index_label=["symbol", "timestamp"]
-)
+db.create_tables()
+
+save_bars(df)
 
 db.commit()
 db.close()
