@@ -7,7 +7,8 @@ class Database:
 
     def __init__(self):
         self.connection = sqlite3.connect(DATABASE)
-
+        self.create_tables()
+        
     @property
     def conn(self):
         return self.connection
