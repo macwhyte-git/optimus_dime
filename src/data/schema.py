@@ -1,3 +1,19 @@
+
+INSERT_STOCK_BAR = """
+INSERT OR IGNORE INTO stock_bars (
+    symbol,
+    timestamp,
+    open,
+    high,
+    low,
+    close,
+    volume,
+    trade_count,
+    vwap
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
 CREATE_STOCK_BARS_TABLE = """
 CREATE TABLE IF NOT EXISTS stock_bars (
     symbol TEXT NOT NULL,

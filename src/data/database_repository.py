@@ -2,6 +2,7 @@
 
 import pandas as pd
 from src.data.database import Database
+from src.data.schema import INSERT_STOCK_BAR
 
 #Prepare the dataframe for saving to the database by ensuring that the required columns are present and that the data types are correct
 def prepare_bars(df):
@@ -24,6 +25,7 @@ def prepare_bars(df):
             f"Missing required columns: {missing}"
         )
 
+    df["timestamp"] = df["timestamp"].astype(str)
     df["volume"] = df["volume"].astype("Int64")
     df["trade_count"] = df["trade_count"].astype("Int64")
 
@@ -33,19 +35,37 @@ def save_bars(df):
 
 #Converts floats in the data to integers to avoid issues with sqlite3 database
     df = prepare_bars(df)
-
+    #temp QA code starts
+    print(df.dtypes)
+    print(type(df["timestamp"].iloc[0]))
+    print(df.head())
+    #temp QA code ends
     db = Database()
 
-    df.to_sql(
-        "stock_bars",
-        db.conn,
-        if_exists="append",
-        index=False
-    )
+    cursor = db.cursor()
 
+    inserted = 0
+
+    for row in df.itertuples(index=False):
+
+        cursor.execute(
+            INSERT_STOCK_BAR,
+            (
+                row.symbol,
+                row.timestamp,
+                row.open,
+                row.high,
+                row.low,
+                row.close,
+                row.volume,
+                row.trade_count,
+                row.vwap,
+            )
+        )
+        inserted += cursor.rowcount
     db.commit()
+    print(f"Inserted {inserted} new bars.")
     db.close()
-
 
 def get_bars(symbol):
 
