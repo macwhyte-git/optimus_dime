@@ -26,8 +26,8 @@ def prepare_bars(df):
         )
 
     df["timestamp"] = df["timestamp"].astype(str)
-    df["volume"] = df["volume"].astype("Int64")
-    df["trade_count"] = df["trade_count"].astype("Int64")
+    df["volume"] = df["volume"].fillna(0).astype(int)
+    df["trade_count"] = df["trade_count"].fillna(0).astype(int)
 
     return df
 
@@ -67,7 +67,7 @@ def save_bars(df):
     print(f"Inserted {inserted} new bars.")
     db.close()
 
-def get_bars(symbol):
+def get_bars(symbol, start_timestamp=None, end_timestamp=None):
 
     db = Database()
 
@@ -75,13 +75,24 @@ def get_bars(symbol):
     SELECT *
     FROM stock_bars
     WHERE symbol = ?
-    ORDER BY timestamp
     """
+    
+    params = [symbol]
 
+    if start_timestamp:
+        query += "\nAND timestamp >= ?"
+        params.append(start_timestamp)
+
+    if end_timestamp:
+        query += "\nAND timestamp <= ?"
+        params.append(end_timestamp)
+
+    query += "\nORDER BY timestamp"
+    
     df = pd.read_sql(
-        query,
-        db.conn,
-        params=(symbol,)
+    query,
+    db.conn,
+    params=params
     )
 
     db.close()
