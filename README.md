@@ -14,3 +14,6 @@ made in VSCode, .venv required to run python.
 # Alpaca used as platform
 documentation can be found here:
 https://alpaca.markets/sdks/python/api_reference/data/timeframe.html#alpaca.data.timeframe.TimeFrame
+
+# Project folder will require /data folder
+This is where the outputs of data storage modules/functions/scripts will be sent.
