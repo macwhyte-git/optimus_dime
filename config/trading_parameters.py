@@ -8,7 +8,7 @@ SYMBOL = "AAPL"
 
 BACKTEST_START = datetime(
     2026,
-    7,
+    6,
     1,
     14,
     30,
@@ -18,7 +18,7 @@ BACKTEST_START = datetime(
 BACKTEST_END = datetime(
     2026,
     7,
-    1,
+    26,
     21,
     0,
     tzinfo=timezone.utc
