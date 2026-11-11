@@ -11,3 +11,6 @@
 # bot data and logs
 data/
 logs/
+
+#project wiki and management
+project_wiki/
