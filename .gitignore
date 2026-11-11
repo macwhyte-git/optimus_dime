@@ -1,0 +1,13 @@
+# virtual environment
+.venv/
+
+# secrets
+.env
+
+# python cache
+--pycache--/
+*.pyc
+
+# bot data and logs
+data/
+logs/
