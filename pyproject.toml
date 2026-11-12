@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optimus_dime"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "alpaca-py",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
