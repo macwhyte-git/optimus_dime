@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from alpaca.trading.client import TradingClient
 
-load_dotenv
+load_dotenv()
 
 api_key = os.getenv("ALPACA_API_KEY")
 secret_key = os.getenv("ALPACA_SECRET_KEY")
