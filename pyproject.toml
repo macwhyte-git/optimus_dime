@@ -12,6 +12,7 @@ dependencies = [
     "pandas",
     "python-dotenv",
     "pyyaml",
+    "ccxt>=4.5.93",
 ]
 
 [tool.setuptools.packages.find]
