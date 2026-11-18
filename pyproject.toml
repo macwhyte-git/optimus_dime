@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv",
     "pyyaml",
     "ccxt>=4.5.93",
+    "psycopg[binary]>=3.2",
 ]
 
 [tool.setuptools.packages.find]
