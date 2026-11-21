@@ -7,11 +7,13 @@ what is collected, change the config and restart.
 
 import difflib
 import logging
+import time
 
 import ccxt
+from sqlalchemy.exc import OperationalError
 
 from bot.config import load_config, require_keys
-from bot.data.storage import insert_bars, latest_ts
+from bot.data.storage import init_db, insert_bars, latest_ts
 
 # --- Section 1: loading settings --------------------------------------------
 
@@ -174,3 +176,56 @@ def seconds_until_next_bar(now_ms: int, timeframe_ms: int, buffer_s: float) -> f
     """
     next_close_ms = (now_ms // timeframe_ms + 1) * timeframe_ms
     return (next_close_ms - now_ms) / 1000 + buffer_s
+
+# --- Section 5: the main loop -----------------------------------------------
+
+# Errors that are expected over days of running and are worth retrying:
+#   ccxt.NetworkError       connection problems, timeouts, rate-limit rejections
+#   ccxt.ExchangeError      the exchange refused the request or is unavailable
+#   OperationalError        the database connection dropped (for example a Postgres
+#                           restart). Caveat: a wrong database password raises this
+#                           too, so it would retry forever; the log would show why.
+# Anything NOT listed (a bug in our code, say) is not caught: the program stops
+# and shows the traceback, which is what we want.
+RETRYABLE_ERRORS = (ccxt.NetworkError, ccxt.ExchangeError, OperationalError)
+
+
+def run(exchange: ccxt.Exchange, settings: dict, once: bool = False):
+    """Collect bars in a loop. With once=True, collect a single time and stop.
+
+    The exchange and settings are passed in, not created here, so this loop
+    can be tested with a fake exchange. 'settings' is what load_settings()
+    returns.
+    """
+    # Unpack what the loop needs once, up front. A missing setting fails here,
+    # before the loop starts, and the loop body then reads clearly.
+    symbol = settings["symbol"]
+    timeframe = settings["timeframe"]
+    batch_limit = settings["exchange_facts"]["batch_limit"]
+    buffer_s = settings["bar_close_buffer_s"]
+    retry_delay_s = settings["retry_delay_s"]
+    timeframe_ms = exchange.parse_timeframe(timeframe) * 1000
+
+    # Make sure the table exists. Done once, outside the loop. If the database
+    # is unreachable at start-up we want to fail immediately, not retry quietly.
+    init_db()
+
+    while True:
+        try:
+            new = collect(exchange, symbol, timeframe, batch_limit)
+            log.info("%s %s %s: %d new bars", exchange.id, symbol, timeframe, new)
+        except RETRYABLE_ERRORS as e:
+            log.warning("collect failed (%s): %s", type(e).__name__, e)
+            if once:
+                raise  # a one-off run should fail loudly, not retry
+            time.sleep(retry_delay_s)
+            continue  # retry straight away instead of waiting for the next bar
+
+        if once:
+            return new
+
+        # Read the clock fresh each cycle: if collect() was slow, the wait
+        # shrinks to match, so the schedule never drifts.
+        wait = seconds_until_next_bar(exchange.milliseconds(), timeframe_ms, buffer_s)
+        log.info("sleeping %.0fs until the next bar", wait)
+        time.sleep(wait)
