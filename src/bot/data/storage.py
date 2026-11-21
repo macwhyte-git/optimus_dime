@@ -5,6 +5,7 @@ functions from here and never touch the database directly.
 """
 
 import os
+from datetime import datetime, timezone
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import URL, Engine, make_url
 
 # --- Section 1: settings ----------------------------------------------------
@@ -101,3 +103,45 @@ def init_db() -> None:
     statements in a transaction and commits.
     """
     metadata.create_all(get_engine())
+
+    # --- Section 5: writing bars ------------------------------------------------
+
+def _ohlcv_to_dicts(exchange: str, symbol: str, timeframe: str, ohlcv_rows) -> list[dict]:
+    """Turn CCXT rows into dicts keyed by column name.
+
+    A CCXT row is [ts_ms, open, high, low, close, volume]. The three labels
+    (exchange, symbol, timeframe) are not in the row, so the caller passes
+    them in. The millisecond timestamp becomes a timezone-aware UTC datetime.
+    """
+    return [
+        {
+            "exchange": exchange,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "ts": datetime.fromtimestamp(row[0] / 1000, tz=timezone.utc),
+            "open": row[1],
+            "high": row[2],
+            "low": row[3],
+            "close": row[4],
+            "volume": row[5],
+        }
+        for row in ohlcv_rows
+    ]
+
+
+def insert_bars(exchange: str, symbol: str, timeframe: str, ohlcv_rows) -> int:
+    """Store bars, skipping any that already exist. Returns how many were new.
+
+    ON CONFLICT DO NOTHING makes this safe to repeat: a bar whose primary key
+    already exists is ignored instead of raising an error. RETURNING sends
+    back one row per bar that was really inserted, so counting them gives the
+    number of new bars. engine.begin() opens a connection and a transaction,
+    commits if the block succeeds and rolls back if it raises.
+    """
+    rows = _ohlcv_to_dicts(exchange, symbol, timeframe, ohlcv_rows)
+    if not rows:
+        return 0
+    stmt = pg_insert(bars).on_conflict_do_nothing().returning(bars.c.ts)
+    with get_engine().begin() as conn:
+        result = conn.execute(stmt, rows)
+        return len(result.all())
