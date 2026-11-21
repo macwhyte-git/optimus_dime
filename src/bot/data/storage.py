@@ -89,3 +89,15 @@ bars = Table(
     # us re-insert overlapping bars safely. Postgres builds an index for it.
     PrimaryKeyConstraint("exchange", "symbol", "timeframe", "ts"),
 )
+
+# --- Section 4: creating the table ------------------------------------------
+
+def init_db() -> None:
+    """Create any tables defined above that do not exist yet.
+
+    create_all first asks the database which tables exist, then creates only
+    the missing ones, so it is safe to call on every start-up. It never alters
+    or drops an existing table. The engine opens a connection, runs the
+    statements in a transaction and commits.
+    """
+    metadata.create_all(get_engine())
