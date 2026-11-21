@@ -1,0 +1,48 @@
+# Settings for the collector job: what to collect and how it behaves.
+# Facts about an exchange itself (like its batch limit) are NOT here; they live
+# in exchanges.yaml, because other jobs need them too.
+# Secrets (database URL, API keys) are NOT here either; they stay in .env.
+#
+# To run a second collector with different choices (say, Ethereum), copy this
+# file to config/collector_eth.yaml, edit the values, and start the collector
+# with --config config/collector_eth.yaml.
+
+# --- What to collect --------------------------------------------------------
+
+# Which exchange to collect from. Must match a top-level key in exchanges.yaml
+# AND be a valid CCXT exchange id (kraken, coinbase, bitstamp, ...).
+exchange: kraken
+
+# Which market. CCXT's unified symbol format: BASE/QUOTE.
+symbol: BTC/USD
+
+# Bar length. Must be a timeframe the exchange supports (1m, 5m, 15m, 1h, ...).
+# Stored in the database with every bar, so different timeframes never mix.
+timeframe: 5m
+
+# --- How it behaves ---------------------------------------------------------
+
+# Seconds to wait after a bar closes before fetching it. Exchanges need a
+# moment to publish the finished bar; asking at the exact boundary can return
+# the bar before it is final.
+bar_close_buffer_s: 5
+
+# Seconds to wait before retrying after a network or exchange error. Retrying
+# instantly would hammer an exchange that is already struggling, and could
+# get us rate limited.
+retry_delay_s: 30
+
+# Let CCXT pace our requests to stay within the exchange's limits. Leave this
+# on: breaking an exchange's rate limit can get an IP temporarily banned.
+enable_rate_limit: true
+
+# --- Logging ----------------------------------------------------------------
+# Logging belongs to the job, not the whole project: a collector running all
+# day wants a different level from a short experiment.
+
+logging:
+  # DEBUG (very detailed), INFO (normal), WARNING (problems only), ERROR.
+  level: INFO
+  # Quoted because the text starts with a percent sign, which YAML can
+  # misread. Quotes make it plain text.
+  format: "%(asctime)s %(levelname)s %(message)s"
