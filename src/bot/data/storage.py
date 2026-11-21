@@ -18,6 +18,8 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    func,
+    select,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import URL, Engine, make_url
@@ -145,3 +147,23 @@ def insert_bars(exchange: str, symbol: str, timeframe: str, ohlcv_rows) -> int:
     with get_engine().begin() as conn:
         result = conn.execute(stmt, rows)
         return len(result.all())
+
+    # --- Section 6: finding where to resume -------------------------------------
+
+def latest_ts(exchange: str, symbol: str, timeframe: str) -> datetime | None:
+    """Open time of the newest stored bar for one market, or None if none.
+
+    Builds: SELECT max(ts) FROM bars WHERE exchange = ... AND symbol = ...
+    AND timeframe = ... The three values go to the database as bound
+    parameters, never pasted into the SQL text. scalar() returns the first
+    column of the first row; when nothing matches, max() gives NULL, which
+    arrives here as None. The datetime returned is timezone-aware (UTC).
+    """
+    stmt = (
+        select(func.max(bars.c.ts))
+        .where(bars.c.exchange == exchange)
+        .where(bars.c.symbol == symbol)
+        .where(bars.c.timeframe == timeframe)
+    )
+    with get_engine().connect() as conn:
+        return conn.execute(stmt).scalar()
