@@ -154,3 +154,23 @@ def collect(exchange: ccxt.Exchange, symbol: str, timeframe: str, batch_limit: i
         since_ms = next_since
 
     return total_new
+
+# --- Section 4: waiting for the next bar ------------------------------------
+
+def seconds_until_next_bar(now_ms: int, timeframe_ms: int, buffer_s: float) -> float:
+    """Seconds to sleep until just after the next bar closes.
+
+    Bars close on clock boundaries (for 5m bars: :00, :05, :10, ...), counted
+    from 1 January 1970. Sleeping until the next boundary, rather than for a
+    fixed number of seconds, stops small delays from piling up and making the
+    fetches drift later in each bar.
+
+    now_ms // timeframe_ms is how many whole bars have elapsed since 1970.
+    Adding 1 and multiplying back gives the next boundary. The buffer is
+    added because an exchange needs a moment to publish the finished bar.
+
+    Takes plain numbers and does no network work, so the result is exactly
+    predictable and easy to test.
+    """
+    next_close_ms = (now_ms // timeframe_ms + 1) * timeframe_ms
+    return (next_close_ms - now_ms) / 1000 + buffer_s
