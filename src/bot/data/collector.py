@@ -3,8 +3,14 @@
 Which exchange, symbol and timeframe to collect (and how the collector
 behaves) comes from config/collector.yaml, never from this code. To change
 what is collected, change the config and restart.
+
+Usage (from the project root, venv active):
+    python -m bot.data.collector                               run forever
+    python -m bot.data.collector --once                        fetch once, then stop
+    python -m bot.data.collector --config config/other.yaml    use a different settings file
 """
 
+import argparse
 import difflib
 import logging
 import time
@@ -229,3 +235,70 @@ def run(exchange: ccxt.Exchange, settings: dict, once: bool = False):
         wait = seconds_until_next_bar(exchange.milliseconds(), timeframe_ms, buffer_s)
         log.info("sleeping %.0fs until the next bar", wait)
         time.sleep(wait)
+
+        # --- Section 6: the command line --------------------------------------------
+
+def parse_args(argv=None) -> argparse.Namespace:
+    """Read the command line. argv=None means 'use what the user typed'.
+
+    Passing a list instead (for example ["--once"]) lets a test call this
+    without touching the real command line.
+    """
+    parser = argparse.ArgumentParser(description="Collect OHLCV bars into Postgres")
+    parser.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG,
+        help="settings file: a job name (collector) or a path to a .yaml file "
+        "(default: %(default)s)",
+    )
+    # --once is about THIS run, not a property of the collector, so it is a
+    # flag and not a setting in the config file.
+    parser.add_argument("--once", action="store_true", help="collect once and stop")
+    return parser.parse_args(argv)
+
+
+def configure_logging(level_name: str, fmt: str) -> None:
+    """Apply the logging level and format from the config file.
+
+    Only the program's entry point should do this. If a function deep inside
+    configured logging, merely importing this module from a test or another
+    script would change that script's logging.
+    """
+    # getattr(logging, "INFO") gives the number 20. A name that is not a real
+    # level gives None, and we reject it instead of silently using a default.
+    level = getattr(logging, str(level_name).upper(), None)
+    if not isinstance(level, int):
+        raise ValueError(
+            f"Unknown logging level '{level_name}'. Use DEBUG, INFO, WARNING or ERROR."
+        )
+    logging.basicConfig(level=level, format=fmt)
+
+
+def main(argv=None) -> None:
+    """Wire everything together, in order: command line, settings, logging,
+    exchange, then the loop."""
+    args = parse_args(argv)
+
+    # Settings come first. If the config is broken, the error is a plain
+    # traceback saying exactly what is wrong; logging is not set up yet.
+    settings = load_settings(args.config)
+    configure_logging(settings["logging"]["level"], settings["logging"]["format"])
+
+    exchange = make_exchange(settings["exchange"], settings["enable_rate_limit"])
+    log.info(
+        "starting collector: %s %s %s (config: %s)",
+        settings["exchange"], settings["symbol"], settings["timeframe"], args.config,
+    )
+
+    # run() loops forever, so Ctrl+C is the normal way to stop it. Catching it
+    # here, at the outermost layer, gives a clean message instead of a traceback.
+    try:
+        run(exchange, settings, once=args.once)
+    except KeyboardInterrupt:
+        log.info("stopped")
+
+
+# Runs main() only when the file is executed (python -m bot.data.collector),
+# not when it is imported by another script or a test.
+if __name__ == "__main__":
+    main()
