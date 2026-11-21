@@ -1,89 +1,70 @@
-"""Collect closed OHLCV bars from an exchange via CCXT into Postgres."""
-import argparse
+"""Collect closed OHLCV bars from an exchange via CCXT into Postgres.
+
+Which exchange, symbol and timeframe to collect (and how the collector
+behaves) comes from config/collector.yaml, never from this code. To change
+what is collected, change the config and restart.
+"""
+
 import logging
-import time
 
-import ccxt
+from bot.config import load_config, require_keys
 
-from bot.data.storage import init_db, insert_bars, latest_ts
+# --- Section 1: loading settings --------------------------------------------
 
+# A named logger, so log lines are labelled "collector". The level and format
+# are applied later, in main(), from the config file. Creating the logger here
+# only gives every function in this file one logger to write to.
 log = logging.getLogger("collector")
 
-BATCH_LIMIT = 720        # Kraken's maximum bars per request
-BAR_CLOSE_BUFFER_S = 5   # wait a few seconds after a bar closes before fetching
+# The config file used when the caller does not name one: config/collector.yaml.
+DEFAULT_CONFIG = "collector"
+
+# Settings the collector cannot run without. Listing them here (and checking
+# them at start-up) turns a typo in the YAML into one clear message, instead
+# of a KeyError that surfaces halfway through a run.
+REQUIRED_SETTINGS = [
+    "exchange",
+    "symbol",
+    "timeframe",
+    "bar_close_buffer_s",
+    "retry_delay_s",
+    "enable_rate_limit",
+    "logging",
+]
+
+# Facts about the exchange that the collector needs from exchanges.yaml.
+REQUIRED_EXCHANGE_FACTS = ["batch_limit"]
 
 
-def make_exchange(exchange_id):
-    return getattr(ccxt, exchange_id)({"enableRateLimit": True})
+def load_settings(config=DEFAULT_CONFIG) -> dict:
+    """Return everything this run needs, in one dictionary.
 
+    Reads the collector's own config, then looks up the facts for the exchange
+    it names in exchanges.yaml and attaches them under "exchange_facts". The
+    rest of the collector receives this dictionary (or values from it) as
+    arguments, rather than reading files itself. That keeps each function
+    simple to test: hand it a small made-up dictionary.
 
-def collect(exchange, symbol, timeframe):
-    """Fetch every closed bar since the newest stored one and store it.
+    'config' is either a job name ("collector") or a path to a YAML file; the
+    loader accepts both.
+    """
+    settings = load_config(config)
+    require_keys(settings, REQUIRED_SETTINGS, source=str(config))
+    require_keys(settings["logging"], ["level", "format"], source=f"{config} (logging)")
 
-    Returns the number of bars processed (re-fetched duplicates are ignored by
-    the database)."""
-    tf_ms = exchange.parse_timeframe(timeframe) * 1000
-    last = latest_ts(exchange.id, symbol, timeframe)
-    since_ms = int(last.timestamp() * 1000) if last else None
-    total = 0
-    while True:
-        batch = exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=BATCH_LIMIT)
-        now_ms = exchange.milliseconds()
-        # the newest bar is still forming, so only keep bars that have closed
-        closed = [bar for bar in batch if bar[0] + tf_ms <= now_ms]
-        if not closed:
-            break
-        total += insert_bars(exchange.id, symbol, timeframe, closed)
-        next_since = closed[-1][0] + tf_ms
-        if since_ms is not None and next_since <= since_ms:
-            break  # no progress, avoid looping forever
-        since_ms = next_since
-    return total
+    # The exchange named in the collector config must have an entry in
+    # exchanges.yaml. Checking now gives a clear error at start-up, listing
+    # the known exchanges, rather than a confusing failure later.
+    exchanges = load_config("exchanges")
+    name = settings["exchange"]
+    if name not in exchanges:
+        raise ValueError(
+            f"Exchange '{name}' (from {config}) has no entry in exchanges.yaml. "
+            f"Known exchanges: {', '.join(exchanges)}"
+        )
+    facts = exchanges[name]
+    require_keys(facts, REQUIRED_EXCHANGE_FACTS, source=f"exchanges.yaml ({name})")
 
-
-def seconds_until_next_bar(exchange, timeframe):
-    tf_ms = exchange.parse_timeframe(timeframe) * 1000
-    now_ms = exchange.milliseconds()
-    next_close = (now_ms // tf_ms + 1) * tf_ms
-    return (next_close - now_ms) / 1000 + BAR_CLOSE_BUFFER_S
-
-
-def run(exchange_id, symbol, timeframe, once=False):
-    exchange = make_exchange(exchange_id)
-    init_db()
-    while True:
-        try:
-            n = collect(exchange, symbol, timeframe)
-            log.info("%s %s %s: processed %d bars", exchange_id, symbol, timeframe, n)
-        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-            log.warning("fetch failed (%s): %s", type(e).__name__, e)
-            if once:
-                raise
-            time.sleep(30)
-            continue
-        if once:
-            return
-        wait = seconds_until_next_bar(exchange, timeframe)
-        log.info("sleeping %.0fs until the next bar", wait)
-        time.sleep(wait)
-
-
-def main():
-    parser = argparse.ArgumentParser(description="Collect OHLCV bars into Postgres")
-    parser.add_argument("--exchange", default="kraken")
-    parser.add_argument("--symbol", default="BTC/USD")
-    parser.add_argument("--timeframe", default="5m")
-    parser.add_argument("--once", action="store_true", help="fetch once and exit")
-    args = parser.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    try:
-        run(args.exchange, args.symbol, args.timeframe, args.once)
-    except KeyboardInterrupt:
-        log.info("stopped")
-
-
-if __name__ == "__main__":
-    main()
-
-# Call collector with:
-#  python -m bot.data.collector --once    
+    # Return a NEW dictionary instead of changing 'settings' in place, so the
+    # loaded config is never silently modified.
+    return {**settings, "exchange_facts": facts}
