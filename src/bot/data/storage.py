@@ -8,7 +8,16 @@ import os
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import (
+    Column,
+    DateTime,
+    Double,
+    MetaData,
+    PrimaryKeyConstraint,
+    Table,
+    Text,
+    create_engine,
+)
 from sqlalchemy.engine import URL, Engine, make_url
 
 # --- Section 1: settings ----------------------------------------------------
@@ -17,6 +26,10 @@ from sqlalchemy.engine import URL, Engine, make_url
 # constant so a different database (for example a test one) can be used by
 # pointing this at another variable, with no other code changes.
 DB_URL_ENV_VAR = "DATABASE_URL"
+
+# Name of the table that stores price bars. Change it here to store bars
+# somewhere else (for example a scratch table for experiments).
+BARS_TABLE_NAME = "bars"
 
 # Read the .env file once, when this module is first imported, and copy its
 # lines into the process environment so os.environ can see them.
@@ -50,3 +63,29 @@ def get_engine() -> Engine:
     instead of causing an error.
     """
     return create_engine(_build_url(), pool_pre_ping=True)
+
+
+# --- Section 3: table definition --------------------------------------------
+
+# MetaData is a registry. Every Table below is attached to it, so a single
+# call (create_all, in Section 4) can create all of them.
+metadata = MetaData()
+
+# One row per price bar. The same table holds any exchange, symbol and
+# timeframe, because those three values are columns, not separate tables.
+bars = Table(
+    BARS_TABLE_NAME,
+    metadata,
+    Column("exchange", Text, nullable=False),
+    Column("symbol", Text, nullable=False),
+    Column("timeframe", Text, nullable=False),
+    Column("ts", DateTime(timezone=True), nullable=False),  # bar open time, UTC
+    Column("open", Double, nullable=False),
+    Column("high", Double, nullable=False),
+    Column("low", Double, nullable=False),
+    Column("close", Double, nullable=False),
+    Column("volume", Double, nullable=False),
+    # Two rows can never share the same market and bar time. This is what lets
+    # us re-insert overlapping bars safely. Postgres builds an index for it.
+    PrimaryKeyConstraint("exchange", "symbol", "timeframe", "ts"),
+)
