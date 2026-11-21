@@ -1,0 +1,20 @@
+# Facts about each exchange. These belong to the exchange itself, not to any
+# one job, so every job (collector, paper broker, backtester) reads them from
+# here. That way each fact is written once and the jobs can never disagree.
+#
+# The top-level key is the CCXT exchange id, exactly as CCXT spells it
+# (ccxt.kraken, ccxt.coinbase, ...). That lets code look up an exchange's
+# facts using the same name that selects the exchange.
+#
+# YAML rules: indent with SPACES (never tabs), and put a space after each colon.
+
+kraken:
+  # The most bars Kraken returns in one request. The collector asks for
+  # this many at a time, because a bigger batch means fewer requests (and
+  # we stay well inside the rate limit). Asking for more than the exchange
+  # allows would silently give us fewer bars than expected.
+  batch_limit: 720
+
+# To add an exchange later, copy the block above under a new key and check
+# the numbers in that exchange's own API documentation first. Do not guess
+# them: a wrong limit would only show up as strange behaviour later.
