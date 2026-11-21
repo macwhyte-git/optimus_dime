@@ -5,7 +5,10 @@ behaves) comes from config/collector.yaml, never from this code. To change
 what is collected, change the config and restart.
 """
 
+import difflib
 import logging
+
+import ccxt
 
 from bot.config import load_config, require_keys
 
@@ -68,3 +71,34 @@ def load_settings(config=DEFAULT_CONFIG) -> dict:
     # Return a NEW dictionary instead of changing 'settings' in place, so the
     # loaded config is never silently modified.
     return {**settings, "exchange_facts": facts}
+
+# --- Section 2: creating the exchange object --------------------------------
+
+def make_exchange(exchange_id: str, enable_rate_limit: bool) -> ccxt.Exchange:
+    """Return a CCXT exchange object for the exchange named in the config.
+
+    ccxt.exchanges is CCXT's list of every exchange id it supports. Checking
+    against it first lets us fail with a clear message (and a spelling
+    suggestion) instead of an obscure AttributeError.
+
+    getattr(ccxt, exchange_id) looks up the class ccxt.kraken (or ccxt.coinbase,
+    and so on) from a string. That lookup is what lets the exchange be chosen
+    by a config value instead of by editing code.
+
+    enableRateLimit makes CCXT pace its own requests so we stay inside the
+    exchange's limits. (The camelCase spelling is CCXT's, not ours.)
+    """
+    if exchange_id not in ccxt.exchanges:
+        hint = difflib.get_close_matches(exchange_id, ccxt.exchanges, n=3)
+        suggestion = f" Did you mean: {', '.join(hint)}?" if hint else ""
+        raise ValueError(f"'{exchange_id}' is not a CCXT exchange id.{suggestion}")
+
+    exchange = getattr(ccxt, exchange_id)({"enableRateLimit": enable_rate_limit})
+
+    # The collector only fetches bars. Not every exchange supports that, so
+    # check now. exchange.has is a dictionary of what the exchange can do; the
+    # value can be True, False or "emulated", so test for truthiness.
+    if not exchange.has.get("fetchOHLCV"):
+        raise ValueError(f"Exchange '{exchange_id}' does not support fetching OHLCV bars.")
+
+    return exchange
