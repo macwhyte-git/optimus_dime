@@ -11,6 +11,7 @@ import logging
 import ccxt
 
 from bot.config import load_config, require_keys
+from bot.data.storage import insert_bars, latest_ts
 
 # --- Section 1: loading settings --------------------------------------------
 
@@ -102,3 +103,54 @@ def make_exchange(exchange_id: str, enable_rate_limit: bool) -> ccxt.Exchange:
         raise ValueError(f"Exchange '{exchange_id}' does not support fetching OHLCV bars.")
 
     return exchange
+
+# --- Section 3: fetching and storing bars -----------------------------------
+
+def collect(exchange: ccxt.Exchange, symbol: str, timeframe: str, batch_limit: int) -> int:
+    """Fetch every closed bar since the newest stored one and store it.
+
+    Returns the number of NEW bars stored (bars we already had don't count).
+
+    Every value comes in as an argument, including batch_limit, so this
+    function reads no files and no globals. Network errors are deliberately
+    NOT caught here: whoever calls this decides what a failure means (retry,
+    give up, ...). That keeps the function simple and the policy in one place.
+    """
+    # ccxt gives the timeframe in seconds; bar open times are in milliseconds,
+    # so convert once and compare like with like.
+    tf_ms = exchange.parse_timeframe(timeframe) * 1000
+
+    # Where did we get to? latest_ts returns None if we have nothing yet, and
+    # then since_ms stays None, which tells the exchange "give me the most
+    # recent bars". Otherwise we restart AT the newest stored bar. Re-fetching
+    # that one bar is harmless (the database ignores duplicates) and means we
+    # can't skip a bar by being off by one.
+    last = latest_ts(exchange.id, symbol, timeframe)
+    since_ms = int(last.timestamp() * 1000) if last else None
+
+    total_new = 0
+    while True:
+        batch = exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=batch_limit)
+        now_ms = exchange.milliseconds()
+
+        # The newest bar is still forming, so its high, low, close and volume
+        # are partial. A bar is closed once its open time plus one bar length
+        # is no later than now. Storing a forming bar would put wrong data in
+        # the history, so only closed bars go in.
+        closed = [bar for bar in batch if bar[0] + tf_ms <= now_ms]
+        if not closed:
+            break  # nothing new: we are caught up
+
+        new = insert_bars(exchange.id, symbol, timeframe, closed)
+        total_new += new
+        log.debug("fetched %d bars, %d closed, %d new", len(batch), len(closed), new)
+
+        # Next fetch starts one bar after the last closed bar we saw. If that
+        # point has not moved forward, the exchange is handing us the same
+        # data again, so stop instead of looping forever.
+        next_since = closed[-1][0] + tf_ms
+        if since_ms is not None and next_since <= since_ms:
+            break
+        since_ms = next_since
+
+    return total_new
