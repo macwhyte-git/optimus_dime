@@ -230,3 +230,173 @@ def candle_figure(
     fig.update_xaxes(title_text="Time (UTC)", row=2 if show_volume else 1, col=1)
 
     return fig
+
+# --- Section 4: overlays (lines and markers) --------------------------------
+
+# Colours for overlay lines, used in turn when the caller does not pick one.
+OVERLAY_COLORS = ["#1f77b4", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2"]
+
+# How a buy and a sell look. A little darker than the candle colours so they
+# stand out when drawn on top of the candles.
+BUY_STYLE = {"name": "Buy", "symbol": "triangle-up", "color": "#1b5e20"}
+SELL_STYLE = {"name": "Sell", "symbol": "triangle-down", "color": "#b71c1c"}
+
+# The Plotly marker shapes and line styles these functions accept. Checking
+# against a list gives a clear error for a typo, instead of Plotly silently
+# drawing a default shape.
+MARKER_SYMBOLS = {
+    "circle", "square", "diamond", "cross", "x", "star",
+    "triangle-up", "triangle-down", "triangle-left", "triangle-right",
+}
+LINE_DASHES = {"solid", "dot", "dash", "longdash", "dashdot"}
+
+
+def _check_figure(fig: go.Figure) -> None:
+    """Make sure 'fig' came from candle_figure(), whose first trace is the candles."""
+    if not isinstance(fig, go.Figure) or len(fig.data) == 0 or fig.data[0].type != "candlestick":
+        raise ValueError("Expected a figure made by candle_figure(): its first trace must be the candlesticks")
+
+
+def _plain_utc(index: pd.Index) -> pd.DatetimeIndex:
+    """Return a time index as plain UTC with no zone attached, matching the
+    candles. A time index with no zone is taken to be UTC. Raises if the index
+    is not made of times."""
+    if not isinstance(index, pd.DatetimeIndex):
+        raise ValueError("The index must be times (a DatetimeIndex), such as the one load_bars() returns")
+    return index.tz_convert("UTC").tz_localize(None) if index.tz is not None else index
+
+
+def _enable_legend(fig: go.Figure) -> None:
+    """Show a legend, top right, for the overlays. The candle and volume traces
+    are left out of it, since the panels are already labelled."""
+    for trace in fig.data:
+        if trace.type in ("candlestick", "bar"):
+            trace.showlegend = False
+    fig.update_layout(
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+
+
+def add_line(
+    fig: go.Figure,
+    series: pd.Series,
+    name: str,
+    color: str | None = None,
+    width: float = 1.5,
+    dash: str = "solid",
+) -> go.Figure:
+    """Draw a line on the candle panel, for example a moving average.
+
+    'series' is a pandas Series indexed by time, such as
+    df["close"].rolling(12).mean(). Missing values (a moving average has none
+    for its first bars) are skipped. 'name' labels it in the legend and in the
+    hover box. If 'color' is None, the next colour in OVERLAY_COLORS is used.
+
+    Changes 'fig' in place and also returns it.
+    """
+    _check_figure(fig)
+    if not isinstance(series, pd.Series):
+        raise TypeError(f"Expected a pandas Series, got {type(series).__name__}")
+    if dash not in LINE_DASHES:
+        raise ValueError(f"Unknown dash '{dash}'. Use one of: {', '.join(sorted(LINE_DASHES))}")
+
+    clean = series.dropna().sort_index()
+    if clean.empty:
+        raise ValueError(f"'{name}' has no values to draw (all of them are missing)")
+    x = _plain_utc(clean.index)
+    if x.has_duplicates:
+        raise ValueError(f"'{name}' has duplicate timestamps; a line needs one value per time")
+
+    # Pick a colour from the palette, one per line already on the chart.
+    if color is None:
+        existing = sum(1 for t in fig.data if t.type == "scatter" and t.mode == "lines")
+        color = OVERLAY_COLORS[existing % len(OVERLAY_COLORS)]
+
+    fig.add_trace(
+        go.Scatter(x=x, y=clean.to_numpy(), mode="lines", name=name,
+                   line=dict(color=color, width=width, dash=dash)),
+        row=1, col=1,   # the candle panel
+    )
+    _enable_legend(fig)
+    return fig
+
+
+def add_markers(
+    fig: go.Figure,
+    points: pd.Series,
+    name: str,
+    symbol: str = "circle",
+    color: str = "#1f77b4",
+    size: int = 11,
+    hover_text: list[str] | None = None,
+) -> go.Figure:
+    """Mark moments on the candle panel, for example where a strategy bought.
+
+    'points' is a Series of PRICES indexed by the TIMES of the events. The
+    price says how high on the chart the marker sits. For example, the closing
+    price at each moment a condition is true:
+
+        buys = df["close"][fast_ma > slow_ma]
+
+    'hover_text' is an optional list, one text per point, shown on hover. Points
+    with a missing price are skipped, along with their text. Several markers at
+    the same time are allowed.
+
+    Raises an error if every marker lies outside the time range of the candles,
+    which nearly always means a timezone mistake or the wrong market.
+
+    Changes 'fig' in place and also returns it.
+    """
+    _check_figure(fig)
+    if not isinstance(points, pd.Series):
+        raise TypeError(f"Expected a pandas Series, got {type(points).__name__}")
+    if symbol not in MARKER_SYMBOLS:
+        raise ValueError(f"Unknown marker symbol '{symbol}'. Use one of: {', '.join(sorted(MARKER_SYMBOLS))}")
+    if hover_text is not None and len(hover_text) != len(points):
+        raise ValueError(f"hover_text has {len(hover_text)} entries but there are {len(points)} points")
+
+    # Keep the points that have a price. A positional mask (not a label lookup)
+    # keeps the hover texts aligned even when two events share a timestamp.
+    keep = points.notna().to_numpy()
+    if not keep.any():
+        raise ValueError(f"'{name}' has no points to draw (all of them are missing)")
+    x = _plain_utc(points.index[keep])
+    y = points.to_numpy()[keep]
+    texts = [t for t, k in zip(hover_text, keep) if k] if hover_text is not None else None
+
+    # A guard against a common mistake: markers that fall entirely outside the
+    # period the chart covers. The candles are always the first trace.
+    candle_times = pd.DatetimeIndex(fig.data[0].x)
+    if x.max() < candle_times.min() or x.min() > candle_times.max():
+        raise ValueError(
+            f"All '{name}' markers fall outside the chart "
+            f"({candle_times.min()} to {candle_times.max()} UTC). "
+            f"Check the timezone and that the data is for the same market."
+        )
+
+    marker_trace = go.Scatter(
+        x=x, y=y, mode="markers", name=name,
+        marker=dict(symbol=symbol, color=color, size=size, line=dict(width=1, color="white")),
+    )
+    if texts is not None:
+        marker_trace.hovertext = texts
+        marker_trace.hoverinfo = "text"
+    fig.add_trace(marker_trace, row=1, col=1)
+    _enable_legend(fig)
+    return fig
+
+
+def add_buy_sell(fig: go.Figure, buys: pd.Series | None = None, sells: pd.Series | None = None) -> go.Figure:
+    """Mark buys (green up-triangles) and sells (red down-triangles).
+
+    'buys' and 'sells' are Series of prices indexed by the time of each event;
+    give either or both. A convenience wrapper around add_markers().
+    """
+    if buys is None and sells is None:
+        raise ValueError("Give at least one of buys or sells")
+    if buys is not None:
+        add_markers(fig, buys, **BUY_STYLE)
+    if sells is not None:
+        add_markers(fig, sells, **SELL_STYLE)
+    return fig
