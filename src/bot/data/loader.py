@@ -13,9 +13,9 @@ from collections.abc import Iterable
 from datetime import datetime
 
 import pandas as pd
-from sqlalchemy import Select, select
+from sqlalchemy import Engine, Select, select
 
-from bot.data.storage import bars
+from bot.data.storage import bars, get_engine
 
 # --- Section 1: the shape of the data we return -----------------------------
 
@@ -144,3 +144,71 @@ def build_query(
 
     # Group each market's bars together, oldest first within each market.
     return stmt.order_by(bars.c.exchange, bars.c.symbol, bars.c.timeframe, bars.c.ts)
+
+# --- Section 3: loading bars into a DataFrame -------------------------------
+
+def load_bars(
+    exchanges,
+    symbols,
+    timeframes,
+    start=None,
+    end=None,
+    engine: Engine | None = None,
+) -> pd.DataFrame:
+    """Return stored bars as a DataFrame.
+
+    Arguments are the same as build_query(): exchanges, symbols and timeframes
+    can each be one string or a list; start is inclusive and end is exclusive.
+
+    The result always has the same shape, however much or little was asked for:
+      - index: 'ts', the bar's open time, as timezone-aware UTC
+      - columns: exchange, symbol, timeframe, open, high, low, close, volume
+      - rows: grouped by market, oldest first within each market
+
+    If nothing matches, an empty DataFrame with the same columns is returned.
+    That is not an error; the caller can check df.empty.
+
+    'engine' is optional. By default the shared engine from storage.py is
+    used. Passing one in lets a test point the loader at a different database.
+    """
+    stmt = build_query(exchanges, symbols, timeframes, start, end)
+
+    # Run the query ourselves and build the DataFrame from the rows. pandas
+    # can read a query directly (read_sql), but its behaviour varies between
+    # pandas and SQLAlchemy versions; this way is explicit and consistent.
+    # tuple(r) turns each SQLAlchemy Row into a plain tuple.
+    with (engine or get_engine()).connect() as conn:
+        rows = [tuple(r) for r in conn.execute(stmt)]
+
+    # build_query selects the columns in this order, so the names line up.
+    df = pd.DataFrame(rows, columns=[INDEX_COLUMN, *OUTPUT_COLUMNS])
+
+    # Set the types explicitly. With zero rows pandas would otherwise guess
+    # 'object' for everything, and an empty result would not have the same
+    # types as a full one.
+    df[INDEX_COLUMN] = pd.to_datetime(df[INDEX_COLUMN], utc=True)
+    df[VALUE_COLUMNS] = df[VALUE_COLUMNS].astype("float64")
+
+    # Make time the row label. The query already sorted the rows.
+    return df.set_index(INDEX_COLUMN)
+
+
+def split_by_market(df: pd.DataFrame) -> dict[tuple[str, str, str], pd.DataFrame]:
+    """Split a loaded DataFrame into one DataFrame per market.
+
+    Returns {(exchange, symbol, timeframe): DataFrame}. Each piece keeps the
+    time index and the five value columns but drops the three label columns,
+    since the dictionary key already says which market it is.
+
+    Use this before calculating anything across rows (moving averages,
+    returns, ...). Those calculations must happen WITHIN one market. Run on
+    the combined table, a 'previous bar' for the first ETH row would be the
+    last BTC row, and the result would be quietly wrong.
+
+    sort=False keeps the markets in the order they appeared. An empty input
+    gives an empty dictionary.
+    """
+    return {
+        key: group.drop(columns=LABEL_COLUMNS)
+        for key, group in df.groupby(LABEL_COLUMNS, sort=False)
+    }
