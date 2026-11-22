@@ -1,12 +1,11 @@
 README.md
 pyproject.toml
 src/bot/__init__.py
+src/bot/config.py
 src/bot/data/__init__.py
-src/bot/data/client.py
 src/bot/data/collector.py
-src/bot/data/historical.py
+src/bot/data/loader.py
 src/bot/data/storage.py
-src/bot/data/stream.py
 src/execution/__init__.py
 src/indicators/__init__.py
 src/optimus_dime.egg-info/PKG-INFO

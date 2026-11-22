@@ -4,4 +4,6 @@ python-dotenv
 pyyaml
 ccxt>=4.5.93
 psycopg[binary]>=3.2
-sqlalchemy>=2.1.9
+sqlalchemy>=2.0
+plotly>=7.1
+matplotlib>=3.11.2
