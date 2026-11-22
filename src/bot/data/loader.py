@@ -12,6 +12,7 @@ the three can be a single value or a list.
 from collections.abc import Iterable
 from datetime import datetime
 
+import ccxt
 import pandas as pd
 from sqlalchemy import Engine, Select, select
 
@@ -212,3 +213,52 @@ def split_by_market(df: pd.DataFrame) -> dict[tuple[str, str, str], pd.DataFrame
         key: group.drop(columns=LABEL_COLUMNS)
         for key, group in df.groupby(LABEL_COLUMNS, sort=False)
     }
+
+# --- Section 4: finding gaps ------------------------------------------------
+
+def find_gaps(df: pd.DataFrame) -> pd.DataFrame:
+    """Report every stretch where bars are missing from a loaded DataFrame.
+
+    Returns one row per gap, with these columns:
+        exchange, symbol, timeframe   which market
+        last_bar_before               the last bar before the gap
+        first_bar_after               the first bar after the gap
+        missing_bars                  how many bars should be in between
+
+    An empty result means no gaps were found.
+
+    Why this matters: an indicator such as a 20-bar average silently goes
+    wrong if bars are missing from its window, and a backtest would never
+    say so. Run this on data before trusting it.
+
+    Each market is checked on its own. Comparing the last BTC bar with the
+    first ETH bar would be meaningless.
+
+    Limit: this only finds gaps BETWEEN bars. It cannot tell you that the
+    data stops too early (the collector is not running) or starts later than
+    you wanted.
+    """
+    columns = [*LABEL_COLUMNS, "last_bar_before", "first_bar_after", "missing_bars"]
+    records = []
+
+    for (exchange, symbol, timeframe), part in split_by_market(df).items():
+        # The expected gap between consecutive bars, from the timeframe.
+        # parse_timeframe("5m") gives 300 (seconds); it is the same function
+        # the collector uses, so both agree on what a timeframe means.
+        step = pd.Timedelta(seconds=ccxt.Exchange.parse_timeframe(timeframe))
+
+        # Time between each bar and the one before it. The first bar has no
+        # predecessor, so its value is NaT ("not a time") and is never > step.
+        times = part.sort_index().index.to_series()
+        deltas = times.diff()
+
+        # Keep only the steps larger than one bar. 'after' is the time of the
+        # bar that ended the gap; 'delta' is how long the step was.
+        for after, delta in deltas[deltas > step].items():
+            before = after - delta
+            # A step of 3 bars' length has only 2 missing bars in between,
+            # hence the minus one. round() absorbs any tiny floating-point error.
+            missing = round(delta / step) - 1
+            records.append((exchange, symbol, timeframe, before, after, missing))
+
+    return pd.DataFrame(records, columns=columns)
