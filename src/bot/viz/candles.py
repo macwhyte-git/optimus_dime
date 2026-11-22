@@ -130,3 +130,103 @@ def describe_market(df: pd.DataFrame) -> str:
         return ""
     first = df[LABEL_COLUMNS].iloc[0]
     return " ".join(str(first[name]) for name in LABEL_COLUMNS)
+
+# --- Section 3: the candlestick chart ---------------------------------------
+
+def candle_figure(
+    df: pd.DataFrame,
+    title: str | None = None,
+    show_volume: bool = True,
+    height: int = DEFAULT_HEIGHT,
+    template: str = DEFAULT_TEMPLATE,
+    up_color: str = UP_COLOR,
+    down_color: str = DOWN_COLOR,
+    max_candles: int = MAX_CANDLES,
+) -> go.Figure:
+    """Build an interactive candlestick chart, with a volume panel underneath.
+
+    'df' is the output of load_bars() for ONE market (or one piece from
+    split_by_market()). The figure is RETURNED, not shown or saved, so the
+    caller decides what to do with it, and more traces can be added to it.
+
+    title        chart title. If None, one is built from the data: the market
+                 (for example 'kraken BTC/USD 5m') and the time range in UTC.
+    show_volume  False gives a candles-only chart using the full height.
+    height       chart height in pixels (the width fills the window).
+    template     a Plotly theme name, for example 'plotly_white' or 'plotly_dark'.
+    up_color / down_color   candle colours for bars that closed higher / lower.
+    max_candles  refuse to draw more bars than this (see prepare_bars).
+    """
+    # Validate the arguments first, so a mistake fails with a clear message
+    # instead of an obscure Plotly error.
+    if template not in pio.templates:
+        raise ValueError(f"Unknown template '{template}'. Available: {', '.join(pio.templates)}")
+    if not isinstance(height, (int, float)) or height <= 0:
+        raise ValueError(f"height must be a positive number of pixels, got {height!r}")
+
+    # Check and clean the data. This raises a clear error if it cannot be drawn.
+    data = prepare_bars(df, max_candles=max_candles)
+
+    # The default title: the market, then the period covered (times are UTC).
+    if title is None:
+        label = describe_market(df) or "Candlestick chart"
+        start, end = data.index[0], data.index[-1]
+        title = f"{label} | {start:%Y-%m-%d %H:%M} to {end:%Y-%m-%d %H:%M} UTC"
+
+    # One column of panels. shared_xaxes=True links the time axes, so zooming
+    # or panning one panel moves the other with it. row_heights splits the
+    # height between candles and volume; with no volume panel there is one row.
+    if show_volume:
+        fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            vertical_spacing=0.03, row_heights=ROW_HEIGHTS,
+        )
+    else:
+        fig = make_subplots(rows=1, cols=1)
+
+    # Row 1: the candles. Each candle has a body (open to close) and wicks
+    # (low to high). Hovering shows all four prices.
+    fig.add_trace(
+        go.Candlestick(
+            x=data.index,
+            open=data["open"], high=data["high"], low=data["low"], close=data["close"],
+            increasing_line_color=up_color, increasing_fillcolor=up_color,
+            decreasing_line_color=down_color, decreasing_fillcolor=down_color,
+            name="Price",
+        ),
+        row=1, col=1,
+    )
+
+    # Row 2: volume, one bar per candle, coloured to match its candle. A bar
+    # that closed at or above its open counts as 'up' here. (In the candle
+    # panel Plotly applies its own rule, so a rare bar where close equals open
+    # might differ in colour between the two panels.)
+    if show_volume:
+        bar_colors = [
+            up_color if close >= open_ else down_color
+            for open_, close in zip(data["open"], data["close"])
+        ]
+        fig.add_trace(
+            go.Bar(x=data.index, y=data["volume"], marker_color=bar_colors, name="Volume"),
+            row=2, col=1,
+        )
+
+    # Layout. The range slider (a small overview strip under the chart) is off:
+    # it takes space from the volume panel, and dragging to zoom is enough.
+    # The legend is hidden because the panels are labelled by their axes.
+    fig.update_layout(
+        title=title,
+        template=template,
+        height=height,
+        showlegend=False,
+        xaxis_rangeslider_visible=False,
+        hovermode="x unified",    # one hover box listing every panel at that time
+        margin=dict(l=60, r=30, t=70, b=50),
+    )
+    fig.update_yaxes(title_text="Price", row=1, col=1)
+    if show_volume:
+        fig.update_yaxes(title_text="Volume", row=2, col=1)
+    # The time axis sits on the bottom panel. The times are UTC (see prepare_bars).
+    fig.update_xaxes(title_text="Time (UTC)", row=2 if show_volume else 1, col=1)
+
+    return fig
