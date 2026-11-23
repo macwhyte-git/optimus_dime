@@ -8,4 +8,6 @@ Requires-Dist: python-dotenv
 Requires-Dist: pyyaml
 Requires-Dist: ccxt>=4.5.93
 Requires-Dist: psycopg[binary]>=3.2
-Requires-Dist: sqlalchemy>=2.1.9
+Requires-Dist: sqlalchemy>=2.0
+Requires-Dist: plotly>=7.1
+Requires-Dist: matplotlib>=3.11.2

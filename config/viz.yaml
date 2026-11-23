@@ -1,0 +1,33 @@
+# Settings for the candle-chart script (scripts/plot_candles.py).
+# Which period to draw is chosen per run with --start / --end; the default
+# is the last 'lookback_hours' hours, counted back from now.
+# To chart something different, copy this file (for example to
+# config/viz_eth.yaml), edit it, and run the script with --config.
+
+# --- What to draw -----------------------------------------------------------
+
+exchange: kraken
+symbol: BTC/USD
+timeframe: 5m
+
+# How far back to draw when no --start is given. 24 hours of 5-minute bars is
+# 288 candles, which is easy to read; a week is about 2,000.
+lookback_hours: 24
+
+# Moving averages to draw on the price panel. Each number is how many bars to
+# average, so 12 on 5-minute bars is one hour. Use [] for none.
+moving_averages: [12, 36]
+
+# --- How it looks -----------------------------------------------------------
+
+show_volume: true            # a volume panel under the candles
+height: 700                  # chart height in pixels
+template: plotly_white       # a Plotly theme, for example plotly_dark
+
+# --- How the file is saved --------------------------------------------------
+
+# How the Plotly library reaches the saved file:
+#   cdn         loaded from the internet when opened (small files)
+#   true        embedded in the file (works offline, several MB larger)
+#   directory   one shared copy saved next to the charts
+include_plotlyjs: cdn
