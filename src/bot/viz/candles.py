@@ -8,6 +8,10 @@ traces added to it.
 Charts are interactive: zoom, pan, and hover over a candle to read its values.
 """
 
+import re
+import webbrowser
+from pathlib import Path
+
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -400,3 +404,79 @@ def add_buy_sell(fig: go.Figure, buys: pd.Series | None = None, sells: pd.Series
     if sells is not None:
         add_markers(fig, sells, **SELL_STYLE)
     return fig
+
+# --- Section 5a: saving and opening charts ----------------------------------
+
+# Where charts are saved. This file is <project>/src/bot/viz/candles.py, so
+# parents[3] is the project root. The path comes from this file's own location,
+# not from the folder Python was started in, so it works from any script.
+# Caveat: this assumes the file stays at src/bot/viz/candles.py.
+CHARTS_DIR = Path(__file__).resolve().parents[3] / "charts"
+
+# How the Plotly JavaScript library is supplied to a saved chart:
+#   "cdn"        loaded from the internet when the file is opened (small files)
+#   True         embedded in the file (works offline, but several MB larger)
+#   "directory"  one shared copy saved next to the charts
+INCLUDE_PLOTLYJS_CHOICES = ("cdn", True, "directory")
+
+# Settings for the saved chart. scrollZoom lets the mouse wheel zoom the chart;
+# by default Plotly only zooms by dragging a box. displaylogo hides the Plotly
+# logo in the toolbar.
+HTML_CONFIG = {"scrollZoom": True, "displaylogo": False}
+
+
+def chart_path(name: str) -> Path:
+    """Turn a chart name into a safe file path inside the charts folder.
+
+    chart_path("kraken BTC/USD 5m")  ->  <project>/charts/kraken-BTC-USD-5m.html
+
+    Anything other than letters, digits, '.', '_' and '-' is replaced with '-',
+    so a name like 'BTC/USD' cannot be mistaken for a folder path. A trailing
+    '.html' on the name is accepted and not doubled up. Raises if nothing is
+    left once the name is cleaned.
+    """
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "-", str(name)).strip("-.")
+    if slug.lower().endswith(".html"):
+        slug = slug[: -len(".html")].strip("-.")
+    if not slug:
+        raise ValueError(f"'{name}' cannot be turned into a file name")
+    return CHARTS_DIR / f"{slug}.html"
+
+
+def save_html(fig: go.Figure, path, include_plotlyjs="cdn") -> Path:
+    """Save a figure as a standalone, interactive HTML file; return its full path.
+
+    'path' must end in .html; folders that do not exist yet are created. An
+    existing file with the same name is OVERWRITTEN, which is how you refresh
+    a chart. See INCLUDE_PLOTLYJS_CHOICES for what 'include_plotlyjs' means.
+    """
+    if not isinstance(fig, go.Figure):
+        raise TypeError(f"Expected a Plotly figure, got {type(fig).__name__}")
+    if include_plotlyjs not in INCLUDE_PLOTLYJS_CHOICES:
+        raise ValueError(f"include_plotlyjs must be one of {INCLUDE_PLOTLYJS_CHOICES}, got {include_plotlyjs!r}")
+    path = Path(path)
+    if path.suffix.lower() != ".html":
+        raise ValueError(f"The file name must end in .html, got '{path.name}'")
+
+    path.parent.mkdir(parents=True, exist_ok=True)   # create the folder if needed
+    fig.write_html(path, include_plotlyjs=include_plotlyjs, full_html=True, config=HTML_CONFIG)
+    return path.resolve()
+
+
+def open_in_browser(path) -> bool:
+    """Open a saved chart in the default web browser. Returns True if a browser
+    was launched. Opens the saved FILE, so what you see is exactly what was saved,
+    whatever Plotly's own display settings are."""
+    path = Path(path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"No such file: {path}")
+    return webbrowser.open(path.as_uri())   # as_uri() gives a file:///... address
+
+
+def save_and_open(fig: go.Figure, name: str, open_browser: bool = True, include_plotlyjs="cdn") -> Path:
+    """Save a chart into the charts folder under 'name', and open it in the
+    browser unless open_browser is False. Returns the path it was saved to."""
+    path = save_html(fig, chart_path(name), include_plotlyjs=include_plotlyjs)
+    if open_browser:
+        open_in_browser(path)
+    return path
